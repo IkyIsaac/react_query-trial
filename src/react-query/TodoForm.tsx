@@ -3,18 +3,31 @@ import { useRef } from "react";
 import { Todo } from "./hooks/useTodos";
 import axios from "axios";
 
+interface AddTodoContext {
+  previousTodos: Todo[];
+}
+
 const TodoForm = () => {
   const queryClient = useQueryClient();
-  const addTodo = useMutation<Todo, Error, Todo>({
+  // useMutation helps to perform Opmistic Update while waiting for server response
+  const addTodo = useMutation<Todo, Error, Todo, AddTodoContext>({
+    // AddTodoContext assigns type for the returned data. If no return it returns an error( The returned data is what we use as Context in onError())
+    // 1st generic-> Type of the data returned from the mutation function
+    // 2nd generic-> Type of the error
+    // 3rd generic-> Type of the variables passed to the mutation function
+    // 4th generic-> Type of the context returned from onMutate
     mutationFn: (todo: Todo) =>
       axios
-        .post<Todo>("https://jsonplaceholder.typicode.com/todos", todo)
+        .post<Todo>("https://jsonplaceholder.typicode.com/todosa", todo)
         .then((res) => res.data),
-    onMutate:(newTodo: Todo)=>{
-      queryClient.setQueryData<Todo[]>(['todos'],(todos)=>[
+    onMutate: (newTodo: Todo) => {
+      const previousTodos = queryClient.getQueryData<Todo[]>(["todos"]) || [];
+      queryClient.setQueryData<Todo[]>(["todos"], (todos) => [
         newTodo,
-        ...(todos||[])
-      ])
+        ...(todos || []),
+      ]);
+
+      return { previousTodos };
     },
     onSuccess: (response, newTodo) => {
       // newData before being muted
@@ -25,14 +38,20 @@ const TodoForm = () => {
       // })
 
       // 2. UPDATING DATA IN THE CACHE
-      queryClient.setQueryData<Todo[]>(['todos'],(todos)=>
-      todos?.map((todo)=> todo===newTodo? response: todo));
+      queryClient.setQueryData<Todo[]>(["todos"], (todos) =>
+        todos?.map((todo) => (todo === newTodo ? response : todo))
+      );
       // queryClient.setQueryData<Todo[]>(["todos"], (todos) => [
       //   response,
       //   ...(todos || []),
       // ]);
-      if(ref.current) ref.current.value='';
+      if (ref.current) ref.current.value = "";
     },
+    onError:(error,newTodo, context)=>{
+      // Rollback the optimistic update
+      if(!context) return;
+      queryClient.setQueryData<Todo[]>(['todos'],context.previousTodos);
+    }
   });
   const ref = useRef<HTMLInputElement>(null);
 
@@ -59,7 +78,9 @@ const TodoForm = () => {
         </div>
         <div className="col">
           {addTodo.isLoading ? (
-            <button disabled className="btn btn-primary">Adding...</button>
+            <button disabled className="btn btn-primary">
+              Adding...
+            </button>
           ) : (
             <button className="btn btn-primary">Add</button>
           )}
